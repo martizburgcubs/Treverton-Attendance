@@ -1,6 +1,27 @@
 
-const sb = window.supabase.createClient(window.Treverton_SUPABASE_URL, window.Treverton_SUPABASE_ANON_KEY);
+const HAS_DB = Boolean(
+  window.TREVERTON_SUPABASE_URL &&
+  window.TREVERTON_SUPABASE_KEY &&
+  /^https:\/\/.+\.supabase\.co$/.test(window.TREVERTON_SUPABASE_URL)
+);
+const sb = HAS_DB
+  ? window.supabase.createClient(window.TREVERTON_SUPABASE_URL, window.TREVERTON_SUPABASE_KEY)
+  : null;
 
+const LOCAL_KEY = "treverton-sports-register-demo-v1";
+function loadLocal(){
+  try{
+    const x = JSON.parse(localStorage.getItem(LOCAL_KEY) || "{}");
+    players = x.players || {};
+    attendance = x.attendance || {};
+    support = x.support || {};
+  }catch(e){
+    players = {}; attendance = {}; support = {};
+  }
+}
+function saveLocal(){
+  localStorage.setItem(LOCAL_KEY, JSON.stringify({players, attendance, support}));
+}
 const SPORTS=["Athletics","Basketball","Badminton","Canoeing","Cross Country","Diving","Hockey","Indoor Hockey","Netball","Soccer","Squash","Swimming","Tennis","Volleyball","Water Polo","Table Tennis"];
 const TEAMS={default:["U14 A","U14 B","U15 A","U15 B","U16 A","U16 B","U17 A","U17 B","1st Team","2nd Team"],Hockey:["U14 A","U14 B","U14 C","U16 A","U16 B","U16 C","U18 A","U18 B","1st Team","2nd Team"],"Indoor Hockey":["U14 A","U16 A","U18 A","1st Team","2nd Team"],Soccer:["U14","U15","U16","1st Team","2nd Team"],Tennis:["U14","U15","U16","U18","1st Team","2nd Team","3rd Team"],Squash:["U14","U15","U16","U18","1st Team","2nd Team"]};
 const STATUS=["?","P","A","E","S","SC"];
@@ -20,17 +41,44 @@ function ps(slot){return support[pk(sport,team,slot)]||{availability_status:"cle
 function percent(slot){let present=0,marked=0;PRACTICE.forEach(d=>{const x=attendance[ak(sport,team,slot,d)]||"?";if(x!=="?"){marked++;if(x==="P")present++}});return marked?Math.round(present/marked*100):null}
 
 async function loadData(){
+  if(!HAS_DB){
+    loadLocal();
+    renderAll();
+    showDemoBanner();
+    return;
+  }
+
   const [{data:pdata,error:pe},{data:adata,error:ae},{data:sdata,error:se}]=await Promise.all([
     sb.from("trev_players").select("*"),
     sb.from("trev_attendance").select("*"),
     sb.from("trev_player_support").select("*")
   ]);
-  if(pe||ae||se){alert((pe||ae||se).message);return}
+
+  if(pe||ae||se){
+    console.error(pe||ae||se);
+    loadLocal();
+    renderAll();
+    showDemoBanner("Database connection failed — running in local demo mode.");
+    return;
+  }
+
   players={};attendance={};support={};
   (pdata||[]).forEach(x=>players[pk(x.sport,x.team,x.slot)]={name:x.player_name||"",klass:x.class_name||""});
   (adata||[]).forEach(x=>attendance[ak(x.sport,x.team,x.slot,x.session_date)]=x.status);
   (sdata||[]).forEach(x=>support[pk(x.sport,x.team,x.slot)]=x);
   renderAll();
+}
+
+function showDemoBanner(text="Demo mode — everything is clickable and saves on this browser until Supabase is connected."){
+  let b=document.getElementById("demoBanner");
+  if(!b){
+    b=document.createElement("div");
+    b.id="demoBanner";
+    b.style.cssText="background:#fff3e8;color:#8a4b10;border-bottom:1px solid #f2c89e;padding:8px 4%;font-size:11px;font-weight:800;text-align:center";
+    const top=document.querySelector(".topbar");
+    top.insertAdjacentElement("afterend",b);
+  }
+  b.textContent=text;
 }
 
 function renderSports(){const w=document.getElementById("sportButtons");w.innerHTML=SPORTS.map(x=>`<button class="${x===sport?"active":""}" data-s="${x}">${x}</button>`).join("");w.querySelectorAll("button").forEach(b=>b.onclick=()=>{sport=b.dataset.s;team=teamsFor(sport)[0];renderAll()})}
@@ -41,26 +89,148 @@ function renderAttendance(){
   for(let slot=1;slot<=12;slot++){const pl=p(slot),sp=ps(slot),pc=percent(slot);html+=`<tr><td>${slot}</td><td class="player"><div class="player-row ${sp.availability_status||"clear"}"><span class="dot"></span><input class="player-name" data-name="${slot}" value="${esc(pl.name)}" placeholder="Enter player name"><button class="note" data-note="${slot}" ${pl.name.trim()?"":"disabled"}>✎</button></div></td><td><span class="pct">${pc===null?"—":pc+"%"}</span></td>${DATES.map(d=>{const v=attendance[ak(sport,team,slot,d)]||"?";return `<td><select class="attendance-select ${SCLASS[v]}" data-att-slot="${slot}" data-att-date="${d}">${STATUS.map(x=>`<option ${x===v?"selected":""}>${x}</option>`).join("")}</select></td>`}).join("")}</tr>`}
   html+="</tbody>";document.getElementById("attendanceTable").innerHTML=html;
 
-  document.querySelectorAll("[data-name]").forEach(i=>i.onchange=async()=>{const slot=+i.dataset.name;const{error}=await sb.from("trev_players").upsert({sport,team,slot,player_name:i.value,class_name:p(slot).klass},{onConflict:"sport,team,slot"});if(error)return alert(error.message);players[pk(sport,team,slot)]={...p(slot),name:i.value};renderAttendance();renderBusPassengers()});
+  document.querySelectorAll("[data-name]").forEach(i=>i.onchange=async()=>{
+    const slot=+i.dataset.name;
+    if(HAS_DB){
+      const{error}=await sb.from("trev_players").upsert(
+        {sport,team,slot,player_name:i.value,class_name:p(slot).klass},
+        {onConflict:"sport,team,slot"}
+      );
+      if(error)return alert(error.message);
+    }
+    players[pk(sport,team,slot)]={...p(slot),name:i.value};
+    if(!HAS_DB) saveLocal();
+    renderAttendance();renderBusPassengers();
+  });
   document.querySelectorAll("[data-note]").forEach(b=>b.onclick=()=>openModal(+b.dataset.note));
-  document.querySelectorAll("[data-att-slot]").forEach(s=>s.onchange=async()=>{const slot=+s.dataset.attSlot,d=s.dataset.attDate,v=s.value;const{error}=await sb.from("trev_attendance").upsert({sport,team,slot,session_date:d,status:v},{onConflict:"sport,team,slot,session_date"});if(error)return alert(error.message);attendance[ak(sport,team,slot,d)]=v;selectedDate=d;renderAttendance()});
+  document.querySelectorAll("[data-att-slot]").forEach(s=>s.onchange=async()=>{
+    const slot=+s.dataset.attSlot,d=s.dataset.attDate,v=s.value;
+    if(HAS_DB){
+      const{error}=await sb.from("trev_attendance").upsert(
+        {sport,team,slot,session_date:d,status:v},
+        {onConflict:"sport,team,slot,session_date"}
+      );
+      if(error)return alert(error.message);
+    }
+    attendance[ak(sport,team,slot,d)]=v;
+    selectedDate=d;
+    if(!HAS_DB) saveLocal();
+    renderAttendance();
+  });
   const named=Array.from({length:12},(_,i)=>i+1).filter(s=>p(s).name.trim()),pcs=named.map(percent).filter(v=>v!==null),teamPc=pcs.length?Math.round(pcs.reduce((a,b)=>a+b,0)/pcs.length):null;const counts={};STATUS.forEach(x=>counts[x]=0);for(let s=1;s<=12;s++)counts[attendance[ak(sport,team,s,selectedDate)]||"?"]++;
   document.getElementById("stats").innerHTML=`<div class="stat percent"><b>${teamPc===null?"—":teamPc+"%"}</b>PRACTICE ATTENDANCE</div>`+STATUS.map(x=>`<div class="stat"><b>${counts[x]}</b>${x}</div>`).join("");
 }
 
 function openModal(slot){if(!p(slot).name.trim())return;modalPlayer={sport,team,slot};const s=ps(slot),m=AVAIL[s.availability_status||"clear"];document.getElementById("modalName").textContent=p(slot).name;document.getElementById("modalMeta").textContent=`${sport} • ${team}`;document.getElementById("coachNotes").value=s.coach_notes||"";document.getElementById("injuryNotes").value=s.injury_notes||"";document.getElementById("scNotes").textContent=s.sc_notes||"No S&C notes yet.";const st=document.getElementById("modalStatus");st.textContent=m[0];st.style.color=m[1];st.style.background=m[2];document.getElementById("playerModal").classList.remove("hidden")}
-async function saveNotes(){if(!modalPlayer)return;const key=pk(modalPlayer.sport,modalPlayer.team,modalPlayer.slot),old=support[key]||{},inj=document.getElementById("injuryNotes").value.trim();let status=old.availability_status||"clear";if(inj&&status==="clear")status="pending";if(!inj&&status==="pending")status="clear";const row={sport:modalPlayer.sport,team:modalPlayer.team,slot:modalPlayer.slot,coach_notes:document.getElementById("coachNotes").value,injury_notes:document.getElementById("injuryNotes").value,sc_notes:old.sc_notes||"",availability_status:status};const{data,error}=await sb.from("trev_player_support").upsert(row,{onConflict:"sport,team,slot"}).select().single();if(error)return alert(error.message);support[key]=data;closeModal();renderAll()}
+async function saveNotes(){
+  if(!modalPlayer)return;
+  const key=pk(modalPlayer.sport,modalPlayer.team,modalPlayer.slot);
+  const old=support[key]||{};
+  const inj=document.getElementById("injuryNotes").value.trim();
+  let status=old.availability_status||"clear";
+  if(inj&&status==="clear")status="pending";
+  if(!inj&&status==="pending")status="clear";
+
+  const row={
+    sport:modalPlayer.sport,
+    team:modalPlayer.team,
+    slot:modalPlayer.slot,
+    coach_notes:document.getElementById("coachNotes").value,
+    injury_notes:document.getElementById("injuryNotes").value,
+    sc_notes:old.sc_notes||"",
+    availability_status:status
+  };
+
+  if(HAS_DB){
+    const{data,error}=await sb.from("trev_player_support")
+      .upsert(row,{onConflict:"sport,team,slot"}).select().single();
+    if(error)return alert(error.message);
+    support[key]=data;
+  }else{
+    support[key]={...old,...row,updated_at:new Date().toISOString(),
+      first_flagged_at:old.first_flagged_at||(status!=="clear"?new Date().toISOString():null),
+      status_updated_at:old.availability_status!==status?new Date().toISOString():old.status_updated_at};
+    saveLocal();
+  }
+
+  closeModal();renderAll();
+}
 function closeModal(){document.getElementById("playerModal").classList.add("hidden");modalPlayer=null}
 
 function renderSC(){
   const list=Object.values(support).filter(x=>["pending","low","injured"].includes(x.availability_status));const c={pending:0,low:0,injured:0};list.forEach(x=>c[x.availability_status]++);document.getElementById("scStats").innerHTML=`<div class="stat"><b>${c.pending}</b>Awaiting</div><div class="stat"><b>${c.injured}</b>Injured</div><div class="stat"><b>${c.low}</b>Low</div>`;
   const w=document.getElementById("scList");w.innerHTML=list.length?list.map(x=>{const pl=players[pk(x.sport,x.team,x.slot)]||{},m=AVAIL[x.availability_status];return `<article class="sc-card ${x.availability_status}" data-sc="${x.sport}|${x.team}|${x.slot}"><div class="sc-card-head"><div><h3>${esc(pl.name||`Player ${x.slot}`)}</h3><small>${esc(x.sport)} • ${esc(x.team)}</small></div><span class="pill" style="color:${m[1]};background:${m[2]}">${m[0]}</span></div>${x.injury_notes?`<p><b>Concern:</b> ${esc(x.injury_notes)}</p>`:""}${x.coach_notes?`<p><b>Coach:</b> ${esc(x.coach_notes)}</p>`:""}${x.sc_notes?`<p><b>S&C:</b> ${esc(x.sc_notes)}</p>`:""}<div class="sc-actions"><button data-state="injured">Injured / No play</button><button data-state="low">Low intensity</button><button data-state="clear">Clear to play</button></div></article>`}).join(""):`<p>No players currently flagged.</p>`;
-  w.querySelectorAll("[data-state]").forEach(b=>b.onclick=async()=>{const [s,t,slot]=b.closest("[data-sc]").dataset.sc.split("|"),key=pk(s,t,+slot),cur=support[key],note=prompt(`S&C note for ${AVAIL[b.dataset.state][0]}:`,cur.sc_notes||"");if(note===null)return;const{data,error}=await sb.from("trev_player_support").upsert({sport:s,team:t,slot:+slot,coach_notes:cur.coach_notes||"",injury_notes:cur.injury_notes||"",sc_notes:note,availability_status:b.dataset.state},{onConflict:"sport,team,slot"}).select().single();if(error)return alert(error.message);support[key]=data;renderAll()})
+  w.querySelectorAll("[data-state]").forEach(b=>b.onclick=async()=>{const [s,t,slot]=b.closest("[data-sc]").dataset.sc.split("|"),key=pk(s,t,+slot),cur=support[key],note=prompt(`S&C note for ${AVAIL[b.dataset.state][0]}:`,cur.sc_notes||"");if(note===null)return;const row={sport:s,team:t,slot:+slot,coach_notes:cur.coach_notes||"",injury_notes:cur.injury_notes||"",sc_notes:note,availability_status:b.dataset.state};
+    if(HAS_DB){
+      const{data,error}=await sb.from("trev_player_support").upsert(row,{onConflict:"sport,team,slot"}).select().single();
+      if(error)return alert(error.message);
+      support[key]=data;
+    }else{
+      support[key]={...cur,...row,updated_at:new Date().toISOString(),status_updated_at:new Date().toISOString()};
+      saveLocal();
+    }
+    renderAll()})
 }
 
 function renderBusTeams(){const s=document.getElementById("busTeam");s.innerHTML=teamsFor(sport).map(x=>`<option ${x===team?"selected":""}>${x}</option>`).join("");if(!document.getElementById("busDate").value)document.getElementById("busDate").value=new Date().toISOString().slice(0,10);renderBusPassengers()}
 function renderBusPassengers(){const t=document.getElementById("busTeam").value||team;let html="";let named=0;for(let slot=1;slot<=12;slot++){const pl=players[pk(sport,t,slot)]||{name:""};if(pl.name.trim())named++;html+=`<label class="passenger ${busSelected.has(slot)?"selected":""}"><span><b>${esc(pl.name||`Player ${slot}`)}</b><small>${sport} • ${t}</small></span><input type="checkbox" data-bus-slot="${slot}" ${busSelected.has(slot)?"checked":""} ${pl.name.trim()?"":"disabled"}></label>`}document.getElementById("passengerList").innerHTML=html;document.querySelectorAll("[data-bus-slot]").forEach(c=>c.onchange=()=>{c.checked?busSelected.add(+c.dataset.busSlot):busSelected.delete(+c.dataset.busSlot);renderBusPassengers()});document.getElementById("busStats").innerHTML=`<div class="stat"><b>${busSelected.size}</b>On bus</div><div class="stat"><b>${Math.max(0,named-busSelected.size)}</b>Not travelling</div><div class="stat"><b>${named}</b>Total</div>`}
-async function saveBus(){const t=document.getElementById("busTeam").value,v=document.getElementById("busVehicle").value.trim(),dest=document.getElementById("busDestination").value.trim();if(!v||!dest)return msg("Enter vehicle and destination.");const{data:j,error}=await sb.from("trev_bus_journeys").insert({travel_date:document.getElementById("busDate").value,vehicle:v,sport,team:t,journey:document.getElementById("busJourney").value,destination:dest,departure_time:document.getElementById("busDeparture").value||null}).select().single();if(error)return msg(error.message);const rows=[];for(let slot=1;slot<=12;slot++){const pl=players[pk(sport,t,slot)]||{name:""};if(pl.name.trim())rows.push({journey_id:j.id,slot,learner_name:pl.name,status:busSelected.has(slot)?"On bus":"Not travelling"})}if(rows.length){const{error:e}=await sb.from("trev_bus_passengers").insert(rows);if(e)return msg(e.message)}busSelected.clear();document.getElementById("busVehicle").value="";document.getElementById("busDestination").value="";msg(`Saved ${v} at ${fmt(j.created_at)}.`);renderBusPassengers();renderHistory()}
+async function saveBus(){
+  const t=document.getElementById("busTeam").value,
+        v=document.getElementById("busVehicle").value.trim(),
+        dest=document.getElementById("busDestination").value.trim();
+  if(!v||!dest)return msg("Enter vehicle and destination.");
+
+  if(!HAS_DB){
+    const history=JSON.parse(localStorage.getItem("treverton-bus-demo-v1")||"[]");
+    const passengers=[];
+    for(let slot=1;slot<=12;slot++){
+      const pl=players[pk(sport,t,slot)]||{name:""};
+      if(pl.name.trim()) passengers.push({slot,learner_name:pl.name,status:busSelected.has(slot)?"On bus":"Not travelling"});
+    }
+    history.unshift({
+      id:"local-"+Date.now(),
+      travel_date:document.getElementById("busDate").value,
+      vehicle:v,sport,team:t,
+      journey:document.getElementById("busJourney").value,
+      destination:dest,
+      departure_time:document.getElementById("busDeparture").value||null,
+      created_at:new Date().toISOString(),
+      removed_at:null,restored_at:null,
+      trev_bus_passengers:passengers
+    });
+    localStorage.setItem("treverton-bus-demo-v1",JSON.stringify(history));
+    busSelected.clear();
+    document.getElementById("busVehicle").value="";
+    document.getElementById("busDestination").value="";
+    msg(`Saved ${v} locally.`);
+    renderBusPassengers();renderHistory();
+    return;
+  }
+
+  const{data:j,error}=await sb.from("trev_bus_journeys").insert({
+    travel_date:document.getElementById("busDate").value,
+    vehicle:v,sport,team:t,
+    journey:document.getElementById("busJourney").value,
+    destination:dest,
+    departure_time:document.getElementById("busDeparture").value||null
+  }).select().single();
+  if(error)return msg(error.message);
+
+  const rows=[];
+  for(let slot=1;slot<=12;slot++){
+    const pl=players[pk(sport,t,slot)]||{name:""};
+    if(pl.name.trim())rows.push({journey_id:j.id,slot,learner_name:pl.name,status:busSelected.has(slot)?"On bus":"Not travelling"});
+  }
+  if(rows.length){
+    const{error:e}=await sb.from("trev_bus_passengers").insert(rows);
+    if(e)return msg(e.message);
+  }
+  busSelected.clear();
+  document.getElementById("busVehicle").value="";
+  document.getElementById("busDestination").value="";
+  msg(`Saved ${v} at ${fmt(j.created_at)}.`);
+  renderBusPassengers();renderHistory();
+}
 function msg(t){const m=document.getElementById("busMessage");m.textContent=t;m.classList.remove("hidden")}
 async function renderHistory(){let q=sb.from("trev_bus_journeys").select("*,trev_bus_passengers(*)").order("travel_date",{ascending:false}).order("created_at",{ascending:false});q=historyMode==="active"?q.is("removed_at",null):q.not("removed_at","is",null);const{data,error}=await q;if(error)return msg(error.message);const search=document.getElementById("historySearch").value.toLowerCase();const rows=(data||[]).filter(r=>`${r.vehicle} ${r.sport} ${r.team} ${r.destination} ${(r.trev_bus_passengers||[]).map(p=>p.learner_name).join(" ")}`.toLowerCase().includes(search));document.getElementById("busHistory").innerHTML=rows.length?rows.map(r=>{const on=(r.trev_bus_passengers||[]).filter(p=>p.status==="On bus"),off=(r.trev_bus_passengers||[]).filter(p=>p.status!=="On bus");return `<div class="history-item"><div class="history-main"><button class="vehicle" data-open="${r.id}"><b>${esc(r.vehicle)}</b><small>${fmt(r.created_at)} • ${esc(r.sport)} • ${esc(r.team)} • ${esc(r.destination)}</small></button><span class="count">${on.length} on bus</span><button class="${historyMode==="active"?"remove":"recover"}" data-action="${r.id}">${historyMode==="active"?"Remove":"Recover"}</button></div><div id="detail-${r.id}" class="history-detail hidden"><div><h4>Girls on this bus</h4><ol>${on.map(p=>`<li>${esc(p.learner_name)}</li>`).join("")||"<li>None</li>"}</ol></div><div><h4>Not travelling</h4><ol>${off.map(p=>`<li>${esc(p.learner_name)}</li>`).join("")||"<li>None</li>"}</ol></div><div><h4>Record</h4><p>Recorded: ${fmt(r.created_at)}</p>${r.removed_at?`<p>Removed: ${fmt(r.removed_at)}</p>`:""}</div></div></div>`}).join(""):"<p>No matching journeys.</p>";document.querySelectorAll("[data-open]").forEach(b=>b.onclick=()=>document.getElementById(`detail-${b.dataset.open}`).classList.toggle("hidden"));document.querySelectorAll("[data-action]").forEach(b=>b.onclick=async()=>{const id=b.dataset.action;if(historyMode==="active"){const reason=prompt("Optional reason for removal:","");if(reason===null)return;await sb.from("trev_bus_journeys").update({removed_at:new Date().toISOString(),removal_reason:reason}).eq("id",id)}else await sb.from("trev_bus_journeys").update({removed_at:null,removal_reason:null,restored_at:new Date().toISOString()}).eq("id",id);renderHistory()})}
 
