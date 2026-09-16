@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0b4f35">
+  <title>Treverton College Sports Register</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <img class="logo-img" src="treverton-logo.png" alt="Treverton College badge">
+    <div><strong>TREVERTON COLLEGE</strong><small>SPORT • 2026 SEASON</small></div>
+  </div>
+  <nav>
+    <button class="nav active" data-view="attendance">Attendance</button>
+    <button class="nav" data-view="bus">Bus Register</button>
+    <button class="nav" data-view="sc">S&amp;C</button>
+  </nav>
+</header>
+
+<section class="hero">
+  <div><span>TREVERTON SPORT OPERATIONS</span><h1 id="heroTitle">Attendance Register</h1><p id="heroText">Shared live register for coaches and staff.</p></div>
+</section>
+
+<section class="sportbar"><span>SPORT</span><div id="sportButtons"></div></section>
+
+<main>
+  <section id="attendanceView">
+    <div class="layout">
+      <aside>
+        <div class="side-title"><small>TEAMS / SQUADS</small><strong id="sportName"></strong></div>
+        <input id="teamSearch" placeholder="Find a team…">
+        <div id="teamButtons"></div>
+        <div class="legend">
+          <b>Attendance Key</b>
+          <span>? Not marked</span><span>P Present</span><span>A Absent</span>
+          <span>E Excused</span><span>S Sick</span><span>SC School Commitment</span>
+          <em>Practice % = Present ÷ marked Mon/Tue practices.</em>
+        </div>
+      </aside>
+
+      <section class="card">
+        <div class="section-head">
+          <div><small>SELECTED TEAM</small><h2 id="selectedTeam"></h2><span id="selectedDate"></span></div>
+          <div class="section-actions"><div id="stats"></div><button onclick="window.print()">Print Register</button></div>
+        </div>
+        <div class="table-wrap"><table id="attendanceTable"></table></div>
+        <p class="hint">Names remain editable. Click ✎ for player notes. Amber = awaiting S&amp;C review, red = injured/no play, yellow = low intensity.</p>
+      </section>
+    </div>
+  </section>
+
+  <section id="busView" class="hidden">
+    <section class="card bus-card">
+      <div class="section-head"><div><small>SPORTS TRANSPORT</small><h2>Bus Register</h2><span>One saved row per vehicle journey.</span></div><div id="busStats"></div></div>
+      <div class="bus-fields">
+        <label>Date<input id="busDate" type="date"></label>
+        <label>Team<select id="busTeam"></select></label>
+        <label>Vehicle<input id="busVehicle" placeholder="e.g. TREVERTON Bus 1"></label>
+        <label>Destination<input id="busDestination" placeholder="Destination"></label>
+        <label>Departure<input id="busDeparture" type="time"></label>
+        <label>Journey<select id="busJourney"><option>To Destination</option><option>Back to School</option></select></label>
+      </div>
+      <div class="bus-actions"><button id="markAllBus">Mark all on bus</button><button id="clearBus">Clear</button><button id="saveBus" class="primary">Save Bus Register</button></div>
+      <div id="busMessage" class="message hidden"></div>
+      <div id="passengerList" class="passengers"></div>
+
+      <div class="history-head">
+        <div><small>TRANSPORT HISTORY</small><h3>Emergency Lookup</h3></div>
+        <div class="history-tools"><div><button id="activeTab" class="active">Active</button><button id="removedTab">Recently Removed</button></div><input id="historySearch" placeholder="Search vehicle, learner, sport or destination"></div>
+      </div>
+      <div id="busHistory"></div>
+    </section>
+  </section>
+
+  <section id="scView" class="hidden">
+    <section class="card">
+      <div class="section-head"><div><small>STRENGTH &amp; CONDITIONING</small><h2>Player Availability</h2><span>Coach flags concerns; S&amp;C decides availability.</span></div><div id="scStats"></div></div>
+      <div id="scList" class="sc-grid"></div>
+    </section>
+  </section>
+</main>
+
+<div id="playerModal" class="modal hidden">
+  <div class="modal-box">
+    <div class="modal-head"><div><small id="modalMeta"></small><h2 id="modalName"></h2></div><button id="closeModal">×</button></div>
+    <div class="modal-body">
+      <div class="status-box"><b>CURRENT S&amp;C STATUS</b><span id="modalStatus"></span><small>Only S&amp;C can change availability.</small></div>
+      <label>COACHING / DEVELOPMENT NOTES<textarea id="coachNotes" placeholder="e.g. Fix shooting form, footwork, weak-hand finishing..."></textarea></label>
+      <label>INJURY / PHYSICAL CONCERN<textarea id="injuryNotes" placeholder="Describe what was reported or observed. Saving a concern sends the player to S&amp;C review."></textarea></label>
+      <label>S&amp;C NOTES<div id="scNotes" class="readonly"></div></label>
+    </div>
+    <div class="modal-actions"><button id="cancelModal">Close</button><button id="saveNotes" class="primary">Save Player Notes</button></div>
+  </div>
+</div>
+
+<footer>TREVERTON COLLEGE <span>•</span> SPORT REGISTER • 2026</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
